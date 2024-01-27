@@ -29,31 +29,48 @@
 // Define SENSORs pins
 #define LDR_PIN_INPUT A5
 #define SSS_PIN_INPUT 1
-#define TIL_PIN_INPUT 2
+#define TIL_PIN_INPUT A1
 #define HC_SR04_TRIG_PIN 3
 #define HC_SR04_ECHO_PIN 4
 
 // Define MOTOR pins
-#define MOTOR_INTA_PIN1 5
-#define MOTOR_INTA_PIN2 6
-#define MOTOR_INTB_PIN1 7
-#define MOTOR_INTB_PIN2 8
-#define MOTOR_ENA_PIN 9
-#define MOTOR_ENB_PIN 10
+#define MOTOR_ENA_PIN 5
+#define MOTOR_INTA_PIN1 6
+#define MOTOR_INTA_PIN2 7
+
+#define MOTOR_ENB_PIN A2
+#define MOTOR_INTB_PIN1 A3
+#define MOTOR_INTB_PIN2 A4
+
+
 
 // Define SPEAKER pins
 #define SPEAKER_PIN 12
+
+// Define MOTOR VIB pin
+#define MOTOR_VIB_PIN 13
 
 
 MD_MAX72XX mx = MD_MAX72XX(HARDWARE_DEVICE,
                            CS_PIN, MAX_DEVICES);
 
-class IRES {
+class SERI {
 private:
+
+  enum emoState_t  // Value for emotional state.
+  {
+    ANGRY = 0,
+    EXCITED = 1,
+    HAPPY = 2,
+    SAD = 3,
+    SCARED = 4,
+    SPEECHL = 5
+  };
   uint8_t _brightVal;   // Value from LDR sensor
   uint8_t _distance;    // Value from HC_SR04
   bool _soundDetected;  // Value from Sound Sensor
   bool _tiltDetected;   // Value form Tilt_Ball_Switch sensor
+  emoState_t _emoState; // Variabe state.
   //--------------------------------------------------------------
   /** \name Methods for setter.
    * @{
@@ -78,76 +95,11 @@ private:
   void setTiltDetected(bool value) {
     this->_tiltDetected = value;
   }
-public:
-  /**
-   * Class Constructor
-   *
-   * Instantiate a new instance of the class.
-   * 
-   */
-  IRES() {}
-  /**
-   * Initialize the object.
-   *
-   * Initialize the object data. This needs to be called during setup() 
-   * to initialize new data for the class
-   * that cannot be done during the object creation.
-   *
-   * \return true if initialized with no error, false otherwise.
-   *
-   */
-  bool begin(void) {
-    // Initialize MD_MAX72XX
-    if (!mx.begin()) {
-      PRINTS("\nMD_MAX72XX initialization failed");
-      return false;
-    }
-    mx.control(MD_MAX72XX::INTENSITY, 0);
 
-    // Configure SENSORs pins
-    pinMode(SSS_PIN_INPUT, INPUT);
-    pinMode(TIL_PIN_INPUT, INPUT);
-
-    // Configure HC_SR04 pins
-    pinMode(HC_SR04_TRIG_PIN, OUTPUT);
-    pinMode(HC_SR04_ECHO_PIN, INPUT);
-
-    // Configure MOTOR pins
-    pinMode(MOTOR_INTA_PIN1, OUTPUT);
-    pinMode(MOTOR_INTA_PIN2, OUTPUT);
-    pinMode(MOTOR_INTB_PIN1, OUTPUT);
-    pinMode(MOTOR_INTB_PIN2, OUTPUT);
-    pinMode(MOTOR_ENA_PIN, OUTPUT);
-    pinMode(MOTOR_ENB_PIN, OUTPUT);
-    digitalWrite(MOTOR_INTA_PIN1, LOW);
-    digitalWrite(MOTOR_INTA_PIN2, LOW);
-    digitalWrite(MOTOR_INTB_PIN1, LOW);
-    digitalWrite(MOTOR_INTB_PIN2, LOW);
+  void setEmoState(emoState_t mode) {
+    this->_emoState = mode;
   }
 
-  //--------------------------------------------------------------
-  /** \name Methods for setter.
-   * @{
-   */
-  uint8_t getBrightVal(void) {
-    return this->_brightVal;
-  }
-
-  uint8_t getDistance(void) {
-    return this->_distance;
-  }
-
-  bool isSoundDetected(void) {
-    return this->_soundDetected;
-  }
-
-  bool isTiltDetected(void) {
-    return this->_tiltDetected;
-  }
-
-  /** \name Methods for object and hardware control.
-   * @{
-   */
   void readLightAmbient(void) {
     this->setBrightVal(analogRead(LDR_PIN_INPUT));
     PRINTS("\nRead Light Ambient: ");
@@ -185,15 +137,205 @@ public:
     PRINTD(this->isTiltDetected());
   }
 
-  void speak() {
+  void blink(void) {
+  }
+
+public:
+  /**
+   * Class Constructor
+   *
+   * Instantiate a new instance of the class.
+   * 
+   */
+  IRES() {}
+  /**
+   * Initialize the object.
+   *
+   * Initialize the object data. This needs to be called during setup() 
+   * to initialize new data for the class
+   * that cannot be done during the object creation.
+   *
+   * \return true if initialized with no error, false otherwise.
+   *
+   */
+  bool begin(void) {
+    // Initialize MD_MAX72XX
+    if (!mx.begin()) {
+      PRINTS("\nMD_MAX72XX initialization failed");
+      return false;
+    }
+    mx.control(MD_MAX72XX::INTENSITY, 0);
+
+    // Configure SENSORs pins
+    pinMode(SSS_PIN_INPUT, INPUT);
+    pinMode(TIL_PIN_INPUT, INPUT);
+
+    // Configure HC_SR04 pins
+    pinMode(HC_SR04_TRIG_PIN, OUTPUT);
+    pinMode(HC_SR04_ECHO_PIN, INPUT);
+
+    // Configure SPEAKER pin
+    pinMode(SPEAKER_PIN, OUTPUT);
+
+    // Configure MOTOR pins
+    pinMode(MOTOR_INTA_PIN1, OUTPUT);
+    pinMode(MOTOR_INTA_PIN2, OUTPUT);
+    pinMode(MOTOR_INTB_PIN1, OUTPUT);
+    pinMode(MOTOR_INTB_PIN2, OUTPUT);
+    pinMode(MOTOR_ENA_PIN, OUTPUT);
+    pinMode(MOTOR_ENB_PIN, OUTPUT);
+    pinMode(MOTOR_VIB_PIN, OUTPUT);
+    digitalWrite(MOTOR_INTA_PIN1, LOW);
+    digitalWrite(MOTOR_INTA_PIN2, LOW);
+    digitalWrite(MOTOR_INTB_PIN1, LOW);
+    digitalWrite(MOTOR_INTB_PIN2, LOW);
+  }
+
+  uint8_t getBrightVal(void) {
+    return this->_brightVal;
+  }
+
+  uint8_t getDistance(void) {
+    return this->_distance;
+  }
+
+  emoState_t getEmoState(void) {
+    return this->_emoState;
+  }
+
+  bool isSoundDetected(void) {
+    return this->_soundDetected;
+  }
+
+  bool isTiltDetected(void) {
+    return this->_tiltDetected;
+  }
+
+  void sense(void) {
+    this->readDistanceToObstacle();
+    this->readLightAmbient();
+    this->readSoundDectector();
+    this->readTiltDetector();
+  }
+
+  void speak(long durationMilli = 100) {
     tone(SPEAKER_PIN,
-         NOTE_C5, 500);
+         NOTE_C5, durationMilli);
     PRINTS("\nPLAYSOUND");
+  }
+
+  void goFoward(uint8_t speed = 255) {
+
+    digitalWrite(MOTOR_INTA_PIN1, LOW);
+    digitalWrite(MOTOR_INTA_PIN2, HIGH);
+    digitalWrite(MOTOR_INTB_PIN1, LOW);
+    digitalWrite(MOTOR_INTB_PIN2, HIGH);
+
+    analogWrite(MOTOR_ENA_PIN, speed);
+    analogWrite(MOTOR_ENB_PIN, speed);
+
+    PRINTS("\n[GO_FOWARD]");
+  }
+
+  void goBackward(uint8_t speed = 255) {
+
+    digitalWrite(MOTOR_INTA_PIN1, HIGH);
+    digitalWrite(MOTOR_INTA_PIN2, LOW);
+    digitalWrite(MOTOR_INTB_PIN1, HIGH);
+    digitalWrite(MOTOR_INTB_PIN2, LOW);
+
+    analogWrite(MOTOR_ENA_PIN, speed);
+    analogWrite(MOTOR_ENB_PIN, speed);
+
+    PRINTS("\n[GO_BACKWARD]");
+  }
+
+  void stop(void) {
+    PRINTS("\n[STOP]");
+    digitalWrite(MOTOR_INTA_PIN1, LOW);
+    digitalWrite(MOTOR_INTA_PIN2, LOW);
+    digitalWrite(MOTOR_INTB_PIN1, LOW);
+    digitalWrite(MOTOR_INTB_PIN2, LOW);
+  }
+
+  void vibrate(uint8_t interval_second = 0) {
+    digitalWrite(MOTOR_VIB_PIN, HIGH);
+    if (interval_second) {
+      // Interval function go here.
+      PRINTS("\n Interval vibrating...");
+    } else PRINTS("\n vibrating...");
+  }
+
+  void stopVibrate(void) {
+    digitalWrite(MOTOR_VIB_PIN, LOW);
+    PRINTS("\nStop vibrate");
+  }
+
+  void showHappy(void) {
+    mx.clear();
+    // EYE_NORMAL
+    mx.setRow(1, 102);
+    mx.setRow(2, 102);
+    // MOUTH_NORMAL
+    mx.setRow(5, 66);
+    mx.setRow(6, 60);
+    this->setEmoState(SERI::HAPPY);
+    PRINTD(this->getEmoState());
+  }
+
+  void showSad(void) {
+    mx.clear();
+    // EYE_SAD
+    mx.setRow(1, 36);
+    mx.setRow(2, 102);
+    // MOUTH_SAD
+    mx.setRow(5, 60);
+    mx.setRow(6, 66);
+    this->setEmoState(SERI::SAD);
+    PRINTD(this->getEmoState());
+  }
+
+  void showScared(void) {
+    mx.clear();
+
+    // Code for display facial
+
+    this->setEmoState(SERI::SCARED);
+    PRINTD(this->getEmoState());
+  }
+
+  void showAngry(void) {
+    mx.clear();
+    mx.setRow(1, 66);
+    mx.setRow(2, 36);
+    mx.setRow(5, 60);
+    mx.setRow(6, 66);
+    this->setEmoState(SERI::ANGRY);
+    PRINTD(this->getEmoState());
+  }
+
+  void showExcited(void) {
+    mx.clear();
+
+    // Code for display facial
+
+    this->setEmoState(SERI::EXCITED);
+    PRINTD(this->getEmoState());
+  }
+
+  void showSpeechless(void) {
+    mx.clear();
+    // EYE_DOT
+    mx.setRow(1, 36);
+    // MOUTH_CONFUSED
+    mx.setRow(5, 126);
+    this->setEmoState(SERI::SPEECHL);
+    PRINTD(this->getEmoState());
   }
 };
 
 
-IRES jarvis = IRES();
+SERI mySeri = SERI();
 
 void setup() {
 #if DEBUG
@@ -201,74 +343,33 @@ void setup() {
 #endif
   PRINTS("\n[START PROGRAM]");
 
-  jarvis.begin();
+  mySeri.begin();
 }
 
 void loop() {
 
-  jarvis.readLightAmbient();
-  jarvis.readDistanceToObstacle();
-  jarvis.readSoundDectector();
-  jarvis.readTiltDetector();
-  if (jarvis.getBrightVal() > 200) {
-    jarvis.speak();
-  }
-  delay(1000);
+  uint8_t brightness = mySeri.getBrightVal();
+  uint8_t distance = mySeri.getDistance();
 
-  int i = jarvis.getBrightVal();
-
-  if (i > 100 && i < 200) {
-
-    Serial.println("Content");
-
-    mx.clear();
-
-    // EYE_NORMAL
-    mx.setRow(1, 102);
-    mx.setRow(2, 102);
-
-    // MOUTH_NORMAL
-    mx.setRow(5, 66);
-    mx.setRow(6, 60);
-  } else if (i < 10) {
-
-    Serial.println("Sad");
-
-    mx.clear();
-
-    // EYE_SAD
-    mx.setRow(1, 36);
-    mx.setRow(2, 102);
-
-    // MOUTH_SAD
-    mx.setRow(5, 60);
-    mx.setRow(6, 66);
+  mySeri.sense();
+  if (distance < 20) {
+    mySeri.speak();
   }
 
-  else if (i >= 10 && i <= 100) {
+  if (brightness <= 50) mySeri.showAngry();
+  else if (brightness > 50 && brightness <= 150) mySeri.showHappy();
+  else if (brightness > 150 && brightness <= 200) mySeri.showSpeechless();
+  else if (brightness > 200) mySeri.showSad();
 
-    Serial.println("OK");
-
-    mx.clear();
-
-    // EYE_NORMAL
-    mx.setRow(1, 36);
-
-    // MOUTH_CONFUSED
-    mx.setRow(5, 126);
+  if (mySeri.getEmoState() == 1) {
+    mySeri.vibrate();
+    mySeri.stopVibrate();
   }
 
-  else if (i >= 200) {
-
-    Serial.println("Angry");
-
-    mx.clear();
-
-    mx.setRow(1, 66);
-    mx.setRow(2, 36);
-    mx.setRow(5, 60);
-    mx.setRow(6, 66);
+  if (!mySeri.isTiltDetected()) {
+    mySeri.vibrate();
+    mySeri.showScared();
+  } else {
+    mySeri.stopVibrate();
   }
-
-  delay(500);
 }
