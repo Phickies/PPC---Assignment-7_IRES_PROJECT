@@ -1,5 +1,6 @@
 # PPC---Assignment-7_SERI_PROJECT
 Description
+
 SERI, or Support Emotional Robot Intelligence, is an innovative robot designed to interact seamlessly with its surroundings. Equipped with numerous types of sensors, SERI is adept at perceiving environmental nuances as well as physical movements occurring both in and around it. Upon processing this data, SERI expresses emotions through a digital facial display or responds physically, enhancing user engagement. Each reaction is accompanied by a brief sound signal, resembling a voice, which users can personalize to their preference.
 
 Furthermore, SERI boasts wireless connectivity with electronic devices such as computers and phones. This feature allows users to monitor the robot’s status, control and customize its functions remotely.
