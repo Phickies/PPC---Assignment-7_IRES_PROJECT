@@ -17,17 +17,24 @@ signal, resembling a voice, which users can personalize to their preference.
 Written and developed by Quy An Tran
 Library and extenal sources used
   - MD_MAX72xx.h by majicDesigns
+  - DHT.h, DHT_U.h and Adafruit_Sensor.h by Adafruit.
 
 ---------------------------------
   \brief 
     - Class SERI
 */
-
+#include "Adafruit_Sensor.h"
+#include "DHT_U.h"
+#include "DHT.h"
 #include "MD_MAX72xx.h"
 #include "pitches.h"
 #include "SPI.h"
 
 // Turn on debug statements to the serial output
+/*
+ * WARNING, TURN ON DEBUG MODE WILL TURN OFF SENDING DATA
+ * TO PROCESSING.
+*/
 #define DEBUG 1
 
 #if DEBUG
@@ -38,11 +45,13 @@ Library and extenal sources used
   }
 #define PRINTS(x) Serial.print(F(x))
 #define PRINTD(x) Serial.println(x, DEC)
+#define SEND_DATA 0
 
 #else
 #define PRINT(s, x)
 #define PRINTS(x)
 #define PRINTD(x)
+#define SEND_DATA 1
 
 #endif
 
@@ -54,10 +63,11 @@ Library and extenal sources used
 #define CLK_PIN 13
 
 // Define SENSORs pins
+#define TEMP_PIN 4
 #define LDR_PIN_INPUT A5
 #define TIL_PIN_INPUT A1
 #define HC_SR04_TRIG_PIN 2
-#define HC_SR04_ECHO_PIN 1
+#define HC_SR04_ECHO_PIN 8
 
 // Define MOTOR pins
 #define MOTOR_ENA_PIN 5
@@ -77,6 +87,7 @@ Library and extenal sources used
 // Rate for the filter to avoid noisy light sensor, value from 0 - 5
 #define LIGHT_FILTER_RATE 2
 
+DHT_Unified dht(TEMP_PIN, DHT11);
 MD_MAX72XX mx = MD_MAX72XX(HARDWARE_DEVICE,
                            CS_PIN, MAX_DEVICES);
 
@@ -89,24 +100,52 @@ public:
     HAPPY = 2,
     SAD = 3,
     SCARED = 4,
-    SPEECHL = 5
+    SPEECHL = 5,
+    COLD = 6,
+    HOT = 7,
+    SATISFIED = 8,
+    DRY = 9
   };
 private:
-  uint8_t _brightVal;                    // Value from LDR sensor
-  uint8_t _distance;                     // Value from HC_SR04
-  bool _isVerticalStand = false;         // Value form Tilt_Ball_Switch sensor
-  unsigned long _preBlinkMillis = 0;     // Stores last time LED was updated
-  unsigned long _blinkDuration = 0;      // Duration of the current blink
-  unsigned long _blinkInterval = 1000;   // Interval at which to blink (millisec)
-  bool _isBlinking = false;              // LED blinking state
-  uint8_t _savedColumnData[2];           // To save the column data
-  unsigned long _preLightSenMillis = 0;  // Stores last time Light data was read
-  unsigned long _preTiltSenMillis = 0;   // Stores last time Tilt data was read
-  emoState_t _emoState;                  // Variabe state.
-  int _readLight[LIGHT_FILTER_RATE];     // Reading from the analog input from LDR (Light Depend Resistor)
-  uint8_t readLightIndex = 0;            // The index of the current reading LDR
-  int _totalReadLight = 0;               // The running total of reading LDR
-  uint8_t intensity = 0;                 // Value for intensity of the LED
+  uint8_t _brightVal;             // Value from LDR sensor
+  float _temperatureVal;          // Value temperature from the DHT11 sensor
+  float _humidityVal;             // Value for humidity
+  int _distance;                  // Value from HC_SR04
+  bool _isVerticalStand = false;  // Value form Tilt_Ball_Switch sensor
+  emoState_t _emoState;           // State of emotional face
+  bool _isMoving = true;          // State of turn on the motor driver
+  bool _interuptEvent = false;    // State checking for interupted event.
+
+  unsigned long _preBlinkMillis = 0;    // Stores last time LED was updated
+  unsigned long _blinkDuration = 0;     // Duration of the current blink
+  unsigned long _blinkInterval = 1000;  // Interval at which to blink (millisec)
+  bool _isBlinking = false;             // LED blinking state
+  uint8_t _savedColumnData[2];          // To save the column data
+
+  unsigned long _preLightSenMillis = 0;        // Stores last time Light data was read
+  unsigned long _preTempSenMillis = 0;         // Stores last time Temp data was read
+  unsigned long _preHumiSenMillis = 0;         // Stores last time Humidity data was read
+  unsigned long _preTiltSenMillis = 0;         // Stores last time Tilt data was read
+  unsigned long _preDistSenMillis = 0;         // Stores last time Distance data was read
+  unsigned long _preColdAnimatedMillis = 0;    // Stores last time Animated Cold mouth
+  unsigned long _preHotAnimatedMillis = 0;     // Stores last time Animated Hot mouth
+  unsigned long _lastEmotionChangeMillis = 0;  // Store last time Change emotion Speechless
+  unsigned long _preSatisfiedMillis = 0;       // Store last time Animated Satisfied face
+
+  int _readLight[LIGHT_FILTER_RATE];  // Reading from the analog input from LDR (Light Depend Resistor)
+  uint8_t readLightIndex = 0;         // The index of the current reading LDR
+  int _totalReadLight = 0;            // The running total of reading LDR
+  uint8_t intensity = 0;              // Value for intensity of the LED
+
+  unsigned long _animationDelay = 0;  // Store last time was animated
+  bool _switchAnimation = false;      // Store the state to switch Animation
+  bool _tempSwitchAnimation = false;  // store the state for later compare
+
+  emoState_t _previousEmoState;  // To store the previous emotion state
+  unsigned long _speechlessDuration = 5000;
+  bool _isShowingSpeechless = false;
+  bool _satisfiedAnimationState = false;
+
   //--------------------------------------------------------------
   /** \name Methods for setter.
    * @{
@@ -121,16 +160,27 @@ private:
   }
 
   /**
+   * Sets the temperature value based on the sensor input.
+   * @param value The temperature reading from the DHT sensor.
+   */
+  void setTemperatureVal(float value) {
+    this->_temperatureVal = value;
+  }
+
+  /**
+   * Sets the humidity value based on the sensor input.
+   * @param value The humidity reading from the DHT sensor.
+   */
+  void setHumidityVal(float value) {
+    this->_humidityVal = value;
+  }
+
+  /**
      * Sets the distance value based on the sensor input.
      * @param value The raw sensor reading from the HC-SR04 ultrasonic sensor.
      */
   void setDistance(int value) {
-    if (value > 255) { value = 255; }
-    if (value < 0) {
-      value = 0;
-      PRINTS("\nDistance Sensor broken");
-    }
-    this->_distance = (uint8_t)value;
+    this->_distance = value;
   }
 
   /**
@@ -142,6 +192,14 @@ private:
   }
 
   /**
+     * Sets the moving status.
+     * @param value The state to be set.
+     */
+  void setIsMoving(bool value) {
+    this->_isMoving = value;
+  }
+
+  /**
      * Sets the current emotional state of SERI.
      * @param mode The emotional state to be set.
      */
@@ -149,14 +207,154 @@ private:
     this->_emoState = mode;
   }
 
+  /**
+     * Helper function to convert the emotional state enum to a string.
+     * @return A string representing the current emotional state.
+     */
+  String getEmotionalStateAsString() {
+    switch (_emoState) {
+      case ANGRY:
+        return "Angry";
+      case EXCITED:
+        return "Excited";
+      case HAPPY:
+        return "Happy";
+      case SAD:
+        return "Sad";
+      case SCARED:
+        return "Scared";
+      case SPEECHL:
+        return "Speechless";
+      default:
+        return "Unknown";
+    }
+  }
+
+  /**
+   * Handles the animation of the mouth for the 'Cold' emotion.
+   *
+   * This function toggles the mouth's animation state between two
+   * patterns to simulate shivering or teeth chattering. It is called
+   * by showCold function based on the specified animation interval.
+   */
+  void animateMouthCold() {
+    // Toggle animation state
+    this->_switchAnimation = !this->_switchAnimation;
+
+    // Update mouth based on animation state
+    if (this->_switchAnimation) {
+      mx.setColumn(5, 84);
+      mx.setColumn(6, 42);
+    } else {
+      mx.setColumn(5, 42);
+      mx.setColumn(6, 84);
+    }
+  }
+
+  /**
+   * Handles the animation of the mouth for the 'Hot' emotion.
+   *
+   * This function toggles the mouth's animation state between two
+   * patterns to simulate panting or being overheated. It is called
+   * by showHot function based on the specified animation interval.
+   */
+  void animateMouthHot() {
+    // Toggle animation state
+    _switchAnimation = !_switchAnimation;
+
+    // Update mouth based on animation state
+    if (_switchAnimation) {
+      mx.setColumn(4, 60);
+      mx.setColumn(5, 126);
+      mx.setColumn(6, 126);
+    } else {
+      mx.setColumn(4, 0);
+      mx.setColumn(5, 24);
+      mx.setColumn(6, 24);
+    }
+  }
+
+  /**
+   * Handles the animation of the satisfied emotion.
+   *
+   * This function toggles the mouth and eyes's animation state between two
+   * patterns to simulate smilling happy. It is called
+   * by showSatisfied function based on the specified animation interval.
+   */
+  void animateSatisfied() {
+    _satisfiedAnimationState = !_satisfiedAnimationState;
+
+    if (_satisfiedAnimationState) {
+      mx.setColumn(1, 102);
+      mx.setColumn(2, 102);
+      mx.setColumn(5, 66);
+      mx.setColumn(6, 60);
+    } else {
+      mx.setColumn(1, 90);
+      mx.setColumn(2, 90);
+      mx.setColumn(5, 102);
+      mx.setColumn(6, 36);
+    }
+  }
+
+  /**
+   * Displays the 'Speechless' emotion randomly.
+   * This function is called periodically to randomly trigger the 'Speechless' emotion.
+   * The chance of triggering and the duration are controlled by internal parameters.
+   */
+  void showSpeechlessRandomly() {
+    unsigned long curMillis = millis();
+
+    if (!_isShowingSpeechless
+        && (curMillis - _lastEmotionChangeMillis > _speechlessDuration)) {
+      // Randomly decide whether to show 'Speechless'
+      if (random(0, 100) < 5) {
+        this->showSpeechless();
+        _isShowingSpeechless = true;
+        _lastEmotionChangeMillis = curMillis;
+      }
+    } else if (_isShowingSpeechless
+               && (curMillis - _lastEmotionChangeMillis > _speechlessDuration)) {
+      resetEmotionState();
+      _isShowingSpeechless = false;
+      _lastEmotionChangeMillis = curMillis;
+    }
+  }
+
+  /**
+   * Resets the emotion state of SERI to the previous emotion.
+   * This function is typically called after displaying a temporary emotion (like 'Speechless')
+   * to revert back to the ongoing emotion state.
+   */
+  void resetEmotionState() {
+    switch (_previousEmoState) {
+      case EXCITED:
+        showExcited();
+        break;
+      case HAPPY:
+        showHappy();
+        break;
+      case SAD:
+        showSad();
+        break;
+      case SATISFIED:
+        showSatisfied();
+        break;
+      default:
+        break;
+    }
+  }
+
 public:
   /**
    * Class Constructor
    *
    * Instantiate a new instance of the class.
-   * 
+   * Pass the oneWire object from One Wire library to control 
+   * the temperature sensor
+   *
    */
-  IRES() {}
+  SERI() {}
   /**
    * Initialize the object.
    *
@@ -209,6 +407,36 @@ public:
       this->readLightAmbient(0);
     }
     this->readTiltDetector(0);
+    dht.begin();
+    this->readTemperature(0);
+    this->readHumidity(0);
+  }
+
+  /**
+     * Waiting for Processing to send back
+     * Handshake protocol with the Processing sketch
+     */
+  void establishContact() {
+    uint8_t col_num = 0;
+    while (true) {
+
+      // If Processing send "B", finish handshake protocol
+      if (Serial.available() <= 0 && Serial.find("B")) {
+        Serial.println("Established connection");
+        break;
+      }
+
+      // If nothing is send, send request to connect.
+      Serial.println("A");
+
+      // Waiting for connection animation
+      if (col_num > COL_SIZE) {
+        col_num = 0;
+      }
+      mx.setColumn(col_num, 255);
+      col_num++;
+      mx.setColumn(col_num, 0);
+    }
   }
 
   /**
@@ -226,12 +454,32 @@ public:
     }
   }
 
+  /**
+     * Sets the interupt event state of SERI.
+     * @param value The state to be set.
+     */
+  void setInteruptEvent(bool value) {
+    this->_interuptEvent = value;
+  }
+
   uint8_t getBrightVal(void) {
     return this->_brightVal;
   }
 
-  uint8_t getDistance(void) {
+  float getTemperatureVal(void) {
+    return this->_temperatureVal;
+  }
+
+  float getHumidityVal(void) {
+    return this->_humidityVal;
+  }
+
+  int getDistance(void) {
     return this->_distance;
+  }
+
+  bool isMoving(void) {
+    return this->_isMoving;
   }
 
   emoState_t getEmoState(void) {
@@ -242,11 +490,15 @@ public:
     return this->_isVerticalStand;
   }
 
+  bool isInteruptEvent(void) {
+    return this->_interuptEvent;
+  }
+
   /**
      * Reads ambient light intensity and filters the reading to smooth out noise.
      * @param readSensorInterval Time interval between successive readings.
      */
-  void readLightAmbient(long readSensorInterval = 1000) {
+  void readLightAmbient(unsigned long readSensorInterval = 1000) {
     unsigned long _curMillis = millis();
 
     if (_curMillis - this->_preLightSenMillis > readSensorInterval) {
@@ -291,28 +543,74 @@ public:
   }
 
   /**
-     * Reads the distance to an obstacle using the HC-SR04 ultrasonic sensor.
-     * @param readingSensor True to enable reading, false to skip.
+     * Reads temperature around using DHT11 temperature sensor.
+     * @param readSensorInterval Time interval between successive readings.
      */
-  void readDistanceToObstacle(bool readingSensor) {
+  void readTemperature(unsigned long readSensorInterval = 60000) {
+    unsigned long _curMillis = millis();
 
-    if (readingSensor) {
-      // The sensor is triggered by a HIGH pulse of 10 or more microseconds.
-      // Give a short LOW pulse beforehand to ensure a clean HIGH pulse:
+    if (_curMillis - this->_preTempSenMillis > readSensorInterval) {
+      this->_preTempSenMillis = _curMillis;
+
+      sensors_event_t event;
+      dht.temperature().getEvent(&event);
+      if (isnan(event.temperature)) {
+        Serial.println("Error reading temperature!");
+        setTemperatureVal(-1);
+      } else {
+        setTemperatureVal(event.temperature);
+      }
+      PRINTS("\nRead Temperature in *C: ");
+      PRINTD(this->getTemperatureVal());
+    }
+  }
+
+  /**
+     * Reads humidity around using DHT11 temperature sensor.
+     * @param readSensorInterval Time interval between successive readings.
+     */
+  void readHumidity(unsigned long readSensorInterval = 60000) {
+    unsigned long _curMillis = millis();
+
+    if (_curMillis - this->_preHumiSenMillis > readSensorInterval) {
+      this->_preHumiSenMillis = _curMillis;
+
+      sensors_event_t event;
+      dht.humidity().getEvent(&event);
+      if (isnan(event.relative_humidity)) {
+        Serial.println("Error humidity temperature!");
+        setHumidityVal(-1);
+      } else {
+        setHumidityVal(event.relative_humidity);
+      }
+      PRINTS("\nRead Humidity in %: ");
+      PRINTD(this->getHumidityVal());
+    }
+  }
+
+  /**
+     * Reads the distance to an obstacle using the HC-SR04 ultrasonic sensor.
+     * @param readSensorInterval Time interval between successive readings.
+     */
+  void readDistanceToObstacle(unsigned long readSensorInterval = 1500) {
+    unsigned long _curMillis = millis();
+
+    if (_curMillis - this->_preDistSenMillis > readSensorInterval) {
+      this->_preDistSenMillis = _curMillis;
+
       digitalWrite(HC_SR04_TRIG_PIN, LOW);
-      delayMicroseconds(5);
+      delayMicroseconds(2);
       digitalWrite(HC_SR04_TRIG_PIN, HIGH);
       delayMicroseconds(10);
       digitalWrite(HC_SR04_TRIG_PIN, LOW);
 
-      // Read the signal from the sensor: a HIGH pulse whose
-      // duration is the time (in microseconds) from the sending
-      // of the ping to the reception of its echo off of an object.
-      long dur = pulseIn(HC_SR04_ECHO_PIN, HIGH);
-      long dis = (dur / 2) * 0.0343;  // speed of sound 343m/s
-      this->setDistance(dis);
-      PRINTS("\nRead Distance: ");
+      unsigned long duration = pulseIn(HC_SR04_ECHO_PIN, HIGH);
+      unsigned long distance = (duration / 2) / 29.1;
+
+      this->setDistance(distance);
+      PRINTS("\nRead Distance in cm: ");
       PRINTD(this->getDistance());
+
     } else {
       return;
     }
@@ -322,7 +620,7 @@ public:
      * Reads the tilt sensor status.
      * @param readSensorInterval Time interval between successive readings.
      */
-  void readTiltDetector(long readSensorInterval = 2500) {
+  void readTiltDetector(unsigned long readSensorInterval = 2500) {
     unsigned long _curMillis = millis();
 
     if (_curMillis - this->_preTiltSenMillis > readSensorInterval) {
@@ -333,6 +631,25 @@ public:
     } else {
       return;
     }
+  }
+
+  /**
+     * Sends the robot's current data (emotional state, brightness) over Serial.
+     */
+  void sendRobotData() {
+    String emotionalState = getEmotionalStateAsString();
+    int brightness = this->getBrightVal();
+    float temperature = this->getTemperatureVal();
+    bool isStanding = this->isVerticalStand();
+    bool isMoving = this->isMoving();
+    // Add more data if needed
+
+    // Create a comma-separated string of values
+    String dataString =
+      emotionalState + "," + brightness + "," + temperature + "," + isStanding + "," + isMoving;
+
+    // Send the data string over serial
+    Serial.println(dataString);
   }
 
   /**
@@ -383,7 +700,7 @@ public:
      * Stops all motor movement.
      */
   void stop(void) {
-    PRINTS("\n[STOP]");
+    // PRINTS("\n[STOP]");
     digitalWrite(MOTOR_INTA_PIN1, LOW);
     digitalWrite(MOTOR_INTA_PIN2, LOW);
     digitalWrite(MOTOR_INTB_PIN1, LOW);
@@ -407,7 +724,7 @@ public:
      */
   void stopVibrate(void) {
     digitalWrite(MOTOR_VIB_PIN, LOW);
-    PRINTS("\nStop vibrate");
+    // PRINTS("\nStop vibrate");
   }
 
   /**
@@ -434,7 +751,7 @@ public:
       mx.setColumn(2, 0);
 
       // Set blinking time to random
-      this->_blinkInterval = random(1000, 2601);
+      this->_blinkInterval = random(1000, 2301);
     }
 
     else if (this->_isBlinking
@@ -463,9 +780,11 @@ public:
       mx.setColumn(5, 66);
       mx.setColumn(6, 60);
       this->setEmoState(SERI::HAPPY);
-      PRINTD(this->getEmoState());
+      PRINT("\nEmotional State: ", this->getEmoState());
+      _previousEmoState = SERI::HAPPY;
+      _lastEmotionChangeMillis = millis();  // Update time
     } else {
-      return;
+      this->showSpeechlessRandomly();
     }
   }
 
@@ -482,9 +801,11 @@ public:
       mx.setColumn(5, 60);
       mx.setColumn(6, 66);
       this->setEmoState(SERI::SAD);
-      PRINTD(this->getEmoState());
+      PRINT("\nEmotional State: ", this->getEmoState());
+      _previousEmoState = SERI::SAD;
+      _lastEmotionChangeMillis = millis();  // Update time
     } else {
-      return;
+      this->showSpeechlessRandomly();
     }
   }
 
@@ -501,7 +822,7 @@ public:
       mx.setColumn(5, 52);
       mx.setColumn(6, 74);
       this->setEmoState(SERI::SCARED);
-      PRINTD(this->getEmoState());
+      PRINT("\nEmotional State: ", this->getEmoState());
     } else {
       return;
     }
@@ -520,7 +841,9 @@ public:
       mx.setColumn(5, 60);
       mx.setColumn(6, 66);
       this->setEmoState(SERI::ANGRY);
-      PRINTD(this->getEmoState());
+      PRINT("\nEmotional State: ", this->getEmoState());
+    } else {
+      return;
     }
   }
 
@@ -538,7 +861,11 @@ public:
       mx.setColumn(5, 66);
       mx.setColumn(6, 60);
       this->setEmoState(SERI::EXCITED);
-      PRINTD(this->getEmoState());
+      PRINT("\nEmotional State: ", this->getEmoState());
+      _previousEmoState = SERI::EXCITED;
+      _lastEmotionChangeMillis = millis();  // Update time
+    } else {
+      this->showSpeechlessRandomly();
     }
   }
 
@@ -553,7 +880,115 @@ public:
       // MOUTH_CONFUSED
       mx.setColumn(5, 126);
       this->setEmoState(SERI::SPEECHL);
-      PRINTD(this->getEmoState());
+      PRINT("\nEmotional State: ", this->getEmoState());
+    } else {
+      return;
+    }
+  }
+
+  /**
+   * Displays a 'Cold' emotion on the LED matrix with an animated mouth.
+   *
+   * This function changes the emotional state to 'COLD' and initiates
+   * an animation for the mouth, giving an impression of shivering or
+   * teeth chattering. The eyes are set to a fixed expression, and the
+   * mouth's animation toggles between two states at regular intervals
+   * defined by animatedInterval.
+   *
+   * @param animatedInterval Duration between animation states for the mouth
+   *                         in milliseconds. The default is 200ms.
+   */
+  void showCold(unsigned long animatedInterval = 200) {
+    // Check and update emotional state if not already COLD
+    if (this->getEmoState() != SERI::COLD) {
+      this->setEmoState(SERI::COLD);
+      PRINT("\nEmotional State: ", this->getEmoState());
+      mx.clear();
+      // EYE_COLD
+      mx.setColumn(1, 36);
+      mx.setColumn(2, 36);
+    }
+
+    // Animation control using time intervals
+    unsigned long _curMillis = millis();
+    if (_curMillis - this->_preColdAnimatedMillis > animatedInterval) {
+      this->_preColdAnimatedMillis = _curMillis;
+      animateMouthCold();
+    }
+  }
+
+  /**
+   * Displays a 'Hot' emotion on the LED matrix with an animated mouth.
+   *
+   * This function changes the emotional state to 'HOT' and initiates
+   * an animation for the mouth to give an impression of panting or
+   * being overheated. The eyes are set to a fixed expression, and the
+   * mouth's animation toggles between two states at regular intervals
+   * defined by animatedInterval.
+   *
+   * @param animatedInterval Duration between animation states for the mouth
+   *                         in milliseconds. The default is 200ms.
+   */
+  void showHot(unsigned long animatedInterval = 600) {
+    // Check and update emotional state if not already HOT
+    if (this->getEmoState() != SERI::HOT) {
+      this->setEmoState(SERI::HOT);
+      PRINT("\nEmotional State: ", this->getEmoState());
+      mx.clear();
+      // EYE_HOT
+      mx.setColumn(1, 36);
+      mx.setColumn(2, 36);
+    }
+
+    // Animation control using time intervals
+    unsigned long _curMillis = millis();
+    if (_curMillis - this->_preHotAnimatedMillis > animatedInterval) {
+      this->_preHotAnimatedMillis = _curMillis;
+      this->animateMouthHot();
+    }
+  }
+
+  /**
+   * Displays a 'Satisfied' emotion on the LED matrix with animated eyes and mouth.
+   * The animation changes the shape of the eyes and mouth over time.
+   * @param animatedInterval Duration between animation states for the mouth and eyes
+   *                         in milliseconds. The default is 1000ms.
+   */
+  void showSatisfied(unsigned long animatedInterval = 1000) {
+    if (this->getEmoState() != SERI::SATISFIED) {
+      mx.clear();
+      this->setEmoState(SERI::SATISFIED);
+      PRINT("\nEmotional State: ", this->getEmoState());
+      _previousEmoState = SERI::EXCITED;
+      _lastEmotionChangeMillis = millis();  // Update time
+    } else {
+      this->showSpeechlessRandomly();
+    }
+
+    // Animation control using time intervals
+    unsigned long _curMillis = millis();
+    if (_curMillis - this->_preSatisfiedMillis > animatedInterval) {
+      this->_preSatisfiedMillis = _curMillis;
+      this->animateSatisfied();
+    }
+  }
+
+  /**
+   * Displays a 'Dry' emotion on the LED matrix.
+   * This function uses the LED matrix to create a face representation
+   * of the 'Dry' emotional state.
+   */
+  void showDry() {
+    if (this->getEmoState() != SERI::DRY) {
+      mx.clear();
+      // EYE_DRY
+      mx.setColumn(1, 36);
+      mx.setColumn(2, 36);
+      // MOUTH_DRY
+      mx.setColumn(5, 60);
+      mx.setColumn(6, 60);
+
+      this->setEmoState(SERI::DRY);
     }
   }
 
@@ -571,17 +1006,26 @@ public:
 main function go here.
 */
 
+// Duration to display temp/humidity emotion
+unsigned long emotionDisplayTime = 5000;
+unsigned long lastEmotionChange = -5000;
+bool tempHumidityEmotionDisplayed = true;
+bool tempEmotionDisplayed = true;  // Start with temperature emotion
+
 SERI mySeri = SERI();
 bool animated = false;
 
 void setup() {
-#if DEBUG
-  Serial.begin(57600);
-#endif
+  Serial.begin(9600);
   PRINTS("\n[START PROGRAM]");
 
   mySeri.begin();
   mySeri.calibrateSensor();
+  randomSeed(analogRead(0));  // Ensure random number generator is properly seeded.
+
+#if SEND_DATA
+  mySeri.establishContact();
+#endif
 }
 
 void loop() {
@@ -593,17 +1037,24 @@ void loop() {
     delay(500);
   }
 
-  if (mySeri.isVerticalStand()) {
-    if (mySeri.getBrightVal() <= 5) {
-      mySeri.showAngry();
-    } else if (mySeri.getBrightVal() > 5 && mySeri.getBrightVal() <= 75) {
-      mySeri.showExcited();
-    } else if (mySeri.getBrightVal() > 75 && mySeri.getBrightVal() <= 175) {
-      mySeri.showHappy();
-    } else if (mySeri.getBrightVal() > 175 && mySeri.getBrightVal() <= 220) {
-      mySeri.showSad();
-    } else if (mySeri.getBrightVal() > 220) {
-      mySeri.showScared();
+  unsigned long curMillis = millis();
+
+  // Revert to light-based emotions after a delay
+  if (tempHumidityEmotionDisplayed
+      && curMillis - lastEmotionChange >= emotionDisplayTime) {
+    tempHumidityEmotionDisplayed = false;
+    if (mySeri.isVerticalStand() && !mySeri.isInteruptEvent()) {
+      if (mySeri.getBrightVal() <= 5) {
+        mySeri.showAngry();
+      } else if (mySeri.getBrightVal() > 5 && mySeri.getBrightVal() <= 75) {
+        mySeri.showExcited();
+      } else if (mySeri.getBrightVal() > 75 && mySeri.getBrightVal() <= 175) {
+        mySeri.showHappy();
+      } else if (mySeri.getBrightVal() > 175 && mySeri.getBrightVal() <= 220) {
+        mySeri.showSad();
+      } else if (mySeri.getBrightVal() > 220) {
+        mySeri.showScared();
+      }
     }
   }
 
@@ -614,9 +1065,46 @@ void loop() {
     mySeri.stopVibrate();
   }
 
-  mySeri.readDistanceToObstacle(false);
+  mySeri.readDistanceToObstacle(500);
   mySeri.updateBlink();
-
   mySeri.readLightAmbient();
+  mySeri.readTemperature();
+  mySeri.readHumidity();
   mySeri.readTiltDetector();
+
+  if (mySeri.getDistance() < 5) {
+    mySeri.goBackward();
+  } else {
+    mySeri.stop();
+  }
+
+  // Alternate between temperature and humidity-based emotions
+  if (curMillis - lastEmotionChange >= emotionDisplayTime) {
+
+    // Randomly choose to display temperature or humidity emotion
+    if (random(2) == 0) {
+      tempEmotionDisplayed = !tempEmotionDisplayed;
+    }
+
+    // Display the chosen emotion
+    if (tempEmotionDisplayed) {
+      if (mySeri.getTemperatureVal() < 10) {
+        mySeri.showCold();
+      } else if (mySeri.getTemperatureVal() > 30) {
+        mySeri.showHot();
+      }
+    } else {
+      if (mySeri.getHumidityVal() < 30) {
+        mySeri.showDry();
+      } else if (mySeri.getHumidityVal() > 70) {
+        mySeri.showSatisfied();
+      }
+    }
+    lastEmotionChange = curMillis;
+    tempHumidityEmotionDisplayed = true;
+  }
+
+#if SEND_DATA
+  mySeri.sendRobotData();
+#endif
 }
