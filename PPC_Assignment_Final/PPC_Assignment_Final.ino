@@ -79,10 +79,10 @@ Library and extenal sources used
 #define MOTOR_INTB_PIN2 A4
 
 // Define SPEAKER pins
-#define SPEAKER_PIN 12
+#define SPEAKER_PIN 10
 
 // Define MOTOR VIB pin
-#define MOTOR_VIB_PIN 13
+#define MOTOR_VIB_PIN 9
 
 // Rate for the filter to avoid noisy light sensor, value from 0 - 5
 #define LIGHT_FILTER_RATE 2
@@ -115,6 +115,7 @@ private:
   emoState_t _emoState;           // State of emotional face
   bool _isMoving = true;          // State of turn on the motor driver
   bool _interuptEvent = false;    // State checking for interupted event.
+  bool _isVibrating = false;      // State checking for vibration.
 
   unsigned long _preBlinkMillis = 0;    // Stores last time LED was updated
   unsigned long _blinkDuration = 0;     // Duration of the current blink
@@ -131,6 +132,7 @@ private:
   unsigned long _preHotAnimatedMillis = 0;     // Stores last time Animated Hot mouth
   unsigned long _lastEmotionChangeMillis = 0;  // Store last time Change emotion Speechless
   unsigned long _preSatisfiedMillis = 0;       // Store last time Animated Satisfied face
+  unsigned long _preVibrateTimeMillis = 0;     // Store last time Vibrate was activated
 
   int _readLight[LIGHT_FILTER_RATE];  // Reading from the analog input from LDR (Light Depend Resistor)
   uint8_t readLightIndex = 0;         // The index of the current reading LDR
@@ -145,6 +147,8 @@ private:
   unsigned long _speechlessDuration = 5000;
   bool _isShowingSpeechless = false;
   bool _satisfiedAnimationState = false;
+
+  unsigned long _vibrateDuration = 0;  // The duration of current vibrate
 
   //--------------------------------------------------------------
   /** \name Methods for setter.
@@ -290,10 +294,10 @@ private:
       mx.setColumn(5, 66);
       mx.setColumn(6, 60);
     } else {
-      mx.setColumn(1, 90);
-      mx.setColumn(2, 90);
-      mx.setColumn(5, 102);
-      mx.setColumn(6, 36);
+      mx.setColumn(1, 102);
+      mx.setColumn(2, 102);
+      mx.setColumn(5, 66);
+      mx.setColumn(6, 60);
     }
   }
 
@@ -383,6 +387,7 @@ public:
 
     // Configure SPEAKER pin
     pinMode(SPEAKER_PIN, OUTPUT);
+    digitalWrite(SPEAKER_PIN, LOW);
 
     // Configure MOTOR pins
     pinMode(MOTOR_INTA_PIN1, OUTPUT);
@@ -708,15 +713,45 @@ public:
   }
 
   /**
-     * Activates the vibration motor for a set interval.
-     * @param interval_second The duration of the vibration in seconds.
+     * Activates the vibration motor.
      */
-  void vibrate(uint8_t interval_second = 0) {
+  void vibrate() {
     digitalWrite(MOTOR_VIB_PIN, HIGH);
-    if (interval_second) {
-      // Interval function go here.
-      PRINTS("\n Interval vibrating...");
-    } else PRINTS("\n vibrating...");
+    PRINTS("VIBRATE");
+  }
+
+  /**
+     * Activates the vibration motor for a set interval.
+     * @param vibrateInterval The interval set between each vibrate in seconds.
+     * @param vibrateDuration The duration of the vibration in seconds.
+     */
+  void vibrate(unsigned long vibrateInterval = 0,
+               unsigned long vibrateDuration = 0) {
+    unsigned long curMillis = millis();
+
+    if (!this->_isVibrating
+        && curMillis - this->_preVibrateTimeMillis >= vibrateInterval) {
+      // Set the variable with the following parameter
+      this->_isVibrating = true;
+      this->_vibrateDuration = vibrateDuration;
+      this->_preVibrateTimeMillis = curMillis;
+
+      // Start vibrating
+      digitalWrite(MOTOR_VIB_PIN, HIGH);
+      PRINTS("VIBRATE");
+
+    } else if (this->_isVibrating
+               && curMillis - this->_preVibrateTimeMillis >= this->_vibrateDuration) {
+      // Set the variable back to non vibrate
+      this->_isVibrating = false;
+      this->_preVibrateTimeMillis = curMillis;
+
+      // Stop vibrating
+      digitalWrite(MOTOR_VIB_PIN, LOW);
+      PRINTS("\nVIBRATE STOP FOR");
+      PRINTD(vibrateInterval / 1000);
+      PRINTS(" second");
+    }
   }
 
   /**
@@ -781,10 +816,8 @@ public:
       mx.setColumn(6, 60);
       this->setEmoState(SERI::HAPPY);
       PRINT("\nEmotional State: ", this->getEmoState());
-      _previousEmoState = SERI::HAPPY;
-      _lastEmotionChangeMillis = millis();  // Update time
     } else {
-      this->showSpeechlessRandomly();
+      return;
     }
   }
 
@@ -802,10 +835,8 @@ public:
       mx.setColumn(6, 66);
       this->setEmoState(SERI::SAD);
       PRINT("\nEmotional State: ", this->getEmoState());
-      _previousEmoState = SERI::SAD;
-      _lastEmotionChangeMillis = millis();  // Update time
     } else {
-      this->showSpeechlessRandomly();
+      return;
     }
   }
 
@@ -898,7 +929,7 @@ public:
    * @param animatedInterval Duration between animation states for the mouth
    *                         in milliseconds. The default is 200ms.
    */
-  void showCold(unsigned long animatedInterval = 200) {
+  void showCold(unsigned long animatedInterval = 300) {
     // Check and update emotional state if not already COLD
     if (this->getEmoState() != SERI::COLD) {
       this->setEmoState(SERI::COLD);
@@ -915,6 +946,8 @@ public:
       this->_preColdAnimatedMillis = _curMillis;
       animateMouthCold();
     }
+
+    this->vibrate(300);
   }
 
   /**
@@ -954,7 +987,7 @@ public:
    * @param animatedInterval Duration between animation states for the mouth and eyes
    *                         in milliseconds. The default is 1000ms.
    */
-  void showSatisfied(unsigned long animatedInterval = 1000) {
+  void showSatisfied(unsigned long animatedInterval = 200) {
     if (this->getEmoState() != SERI::SATISFIED) {
       mx.clear();
       this->setEmoState(SERI::SATISFIED);
@@ -1033,12 +1066,22 @@ void loop() {
   // Smooth out the transition for reset.
   if (!animated) {
     mySeri.startAnimation();
+    mySeri.speak(200);
     animated = true;
     delay(500);
   }
 
   unsigned long curMillis = millis();
 
+  if (mySeri.getEmoState() == SERI::HOT) {
+    mySeri.showHot();
+  } else if (mySeri.getEmoState() == SERI::COLD) {
+    mySeri.showCold();
+  } else if (mySeri.getEmoState() == SERI::SATISFIED) {
+    mySeri.showSatisfied();
+  } else if (mySeri.getEmoState() == SERI::DRY) {
+    mySeri.showDry();
+  }
   // Revert to light-based emotions after a delay
   if (tempHumidityEmotionDisplayed
       && curMillis - lastEmotionChange >= emotionDisplayTime) {
@@ -1046,11 +1089,11 @@ void loop() {
     if (mySeri.isVerticalStand() && !mySeri.isInteruptEvent()) {
       if (mySeri.getBrightVal() <= 5) {
         mySeri.showAngry();
-      } else if (mySeri.getBrightVal() > 5 && mySeri.getBrightVal() <= 75) {
+      } else if (mySeri.getBrightVal() > 5 && mySeri.getBrightVal() <= 50) {
         mySeri.showExcited();
-      } else if (mySeri.getBrightVal() > 75 && mySeri.getBrightVal() <= 175) {
+      } else if (mySeri.getBrightVal() > 50 && mySeri.getBrightVal() <= 150) {
         mySeri.showHappy();
-      } else if (mySeri.getBrightVal() > 175 && mySeri.getBrightVal() <= 220) {
+      } else if (mySeri.getBrightVal() > 150 && mySeri.getBrightVal() <= 220) {
         mySeri.showSad();
       } else if (mySeri.getBrightVal() > 220) {
         mySeri.showScared();
@@ -1058,9 +1101,9 @@ void loop() {
     }
   }
 
-  if (mySeri.getEmoState() != SERI::SCARED && !mySeri.isVerticalStand()) {
+  if (!mySeri.isVerticalStand()) {
     mySeri.showScared();
-    mySeri.vibrate(2000);
+    mySeri.vibrate(1000,500);
   } else {
     mySeri.stopVibrate();
   }
@@ -1080,7 +1123,6 @@ void loop() {
 
   // Alternate between temperature and humidity-based emotions
   if (curMillis - lastEmotionChange >= emotionDisplayTime) {
-
     // Randomly choose to display temperature or humidity emotion
     if (random(2) == 0) {
       tempEmotionDisplayed = !tempEmotionDisplayed;
@@ -1094,16 +1136,15 @@ void loop() {
         mySeri.showHot();
       }
     } else {
-      if (mySeri.getHumidityVal() < 30) {
+      if (mySeri.getHumidityVal() < 20) {
         mySeri.showDry();
-      } else if (mySeri.getHumidityVal() > 70) {
+      } else if (mySeri.getHumidityVal() > 60) {
         mySeri.showSatisfied();
       }
     }
     lastEmotionChange = curMillis;
     tempHumidityEmotionDisplayed = true;
   }
-
 #if SEND_DATA
   mySeri.sendRobotData();
 #endif
