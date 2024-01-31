@@ -369,7 +369,7 @@ public:
    * @return True if initialized with no error, False otherwise.
    *
    */
-  bool begin(void) {
+  void begin(void) {
     // Initialize MD_MAX72XX
     if (!mx.begin()) {
       PRINTS("\nMD_MAX72XX initialization failed");
